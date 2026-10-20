@@ -265,6 +265,12 @@ INSTALLDIR_NATIVE=$ROOT/install-native
 INSTALLDIR_NATIVE_DOC=$ROOT/install-native/share/doc/gcc-arm-none-eabi
 INSTALLDIR_MINGW=$ROOT/install-mingw
 INSTALLDIR_MINGW_DOC=$ROOT/install-mingw/share/doc/gcc-arm-none-eabi
+BUILDDIR_ARMHF=$ROOT/build-armhf
+INSTALLDIR_ARMHF=$ROOT/install-armhf
+INSTALLDIR_ARMHF_DOC=$ROOT/install-armhf/share/doc/gcc-arm-none-eabi
+BUILDDIR_RISCV=$ROOT/build-riscv
+INSTALLDIR_RISCV=$ROOT/install-riscv
+INSTALLDIR_RISCV_DOC=$ROOT/install-riscv/share/doc/gcc-arm-none-eabi
 
 PACKAGEDIR=$ROOT/pkg
 
@@ -393,6 +399,10 @@ if [[ "${SCRIPT%%-*}" = "build" || "${SCRIPT#*_*}" = "build" ]]; then
     fi
     HOST_MINGW=x86_64-w64-mingw32
     HOST_MINGW_TOOL=x86_64-w64-mingw32
+    HOST_ARMHF=arm-linux-gnueabihf
+    HOST_ARMHF_TOOL=arm-none-linux-gnueabihf
+    HOST_RISCV=riscv64-unknown-linux
+    HOST_RISCV_TOOL=riscv64-unknown-linux-gnu
     TARGET=arm-none-eabi
     ENV_CFLAGS=
     ENV_CPPFLAGS=
@@ -409,9 +419,13 @@ if [[ "${SCRIPT%%-*}" = "build" || "${SCRIPT#*_*}" = "build" ]]; then
 
     OBJ_SUFFIX_MINGW=$TARGET-$RELEASEDATE-$HOST_MINGW
     OBJ_SUFFIX_NATIVE=$TARGET-$RELEASEDATE-$HOST_NATIVE
+    OBJ_SUFFIX_ARMHF=$TARGET-$RELEASEDATE-$HOST_ARMHF
+    OBJ_SUFFIX_RISCV=$TARGET-$RELEASEDATE-$HOST_RISCV
     PACKAGE_NAME=gnu-tools-for-stm32-$STM32_TOOLS_VER
     PACKAGE_NAME_NATIVE=$PACKAGE_NAME-$PACKAGE_NAME_SUFFIX
     PACKAGE_NAME_MINGW=$PACKAGE_NAME-win32
+    PACKAGE_NAME_ARMHF=$PACKAGE_NAME-armhf
+    PACKAGE_NAME_RISCV=$PACKAGE_NAME-riscv
     INSTALL_PACKAGE_NAME=$PACKAGE_NAME
 
 fi # not a build script

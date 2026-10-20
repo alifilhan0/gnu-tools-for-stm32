@@ -70,6 +70,8 @@ fi
 skip_steps=
 skip_mingw32=no
 skip_native_build=no
+skip_armhf_build=no
+skip_riscv_build=no
 
 for ac_arg; do
     case $ac_arg in
@@ -98,6 +100,12 @@ if [ "x$skip_steps" != "x" ]; then
                 ;;
             howto | package_bins | package_sources | md5_checksum | strip)
                 ;;
+            arm | armhf)
+                skip_armhf_build=yes
+                ;;
+            riscv | riscv64_build)
+            	skip_riscv_build=yes
+                ;;
             *)
                 echo "Unknown build steps: $ss" 1>&2
                 usage
@@ -123,6 +131,21 @@ if [ "x$skip_mingw32" != "xyes" ] ; then
     mkdir -p "$BUILDDIR_MINGW"
     rm -rf "$INSTALLDIR_MINGW"
     mkdir -p "$INSTALLDIR_MINGW"
+fi
+
+if [ "x$skip_armhf_build" != "xyes" ] ; then
+    rm -rf "$BUILDDIR_ARMHF"
+    mkdir -p "$BUILDDIR_ARMHF"
+    rm -rf "$INSTALLDIR_ARMHF"
+    mkdir -p "$INSTALLDIR_ARMHF"
+fi
+
+
+if [ "x$skip_riscv_build" != "xyes" ] ; then
+    rm -rf "$BUILDDIR_RISCV"
+    mkdir -p "$BUILDDIR_RISCV"
+    rm -rf "$INSTALLDIR_RISCV"
+    mkdir -p "$INSTALLDIR_RISCV"
 fi
 
 cd "$SRCDIR"
@@ -222,6 +245,225 @@ if [ "x$skip_native_build" != "xyes" ] ; then
     make install
     popd
 fi  # if [ "x$skip_native_build" != "xyes" ] ; then
+
+if [ "x$skip_armhf_build" != "xyes" ] ; then
+
+saveenv
+saveenvvar CC_FOR_BUILD gcc
+saveenvvar CC $HOST_ARMHF_TOOL-gcc
+saveenvvar CXX $HOST_ARMHF_TOOL-g++
+saveenvvar AR $HOST_ARMHF_TOOL-ar
+saveenvvar RANLIB $HOST_ARMHF_TOOL-ranlib
+saveenvvar STRIP $HOST_ARMHF_TOOL-strip
+saveenvvar NM $HOST_ARMHF_TOOL-nm
+saveenvvar AS $HOST_ARMHF_TOOL-as
+saveenvvar OBJDUMP $HOST_ARMHF_TOOL-objdump
+
+    echo Task [I-0] /$HOST_ARMHF/zlib/ | tee -a "$BUILDDIR_ARMHF/.stage"
+    rm -rf $BUILDDIR_ARMHF/zlib
+    copy_dir_clean $SRCDIR/$ZLIB $BUILDDIR_ARMHF/zlib
+    pushd $BUILDDIR_ARMHF/zlib
+    #install zlib at .../host-libs/zlib, prevent gcc from linking into this external zlib
+    ./configure --static --prefix=$BUILDDIR_ARMHF/host-libs/zlib
+    make
+    make install
+    popd
+
+    echo Task [I-1] /$HOST_ARMHF/gmp/ | tee -a "$BUILDDIR_ARMHF/.stage"
+    rm -rf $BUILDDIR_ARMHF/gmp && mkdir -p $BUILDDIR_ARMHF/gmp
+    pushd $BUILDDIR_ARMHF/gmp
+
+    CPPFLAGS="-fexceptions" $SRCDIR/$GMP/configure --build=$BUILD \
+        --host=$HOST_ARMHF \
+        --prefix=$BUILDDIR_ARMHF/host-libs/usr \
+        --enable-cxx \
+        --enable-fft \
+        --disable-shared
+
+    make -j$JOBS
+    make install
+    #make check
+    popd
+
+    echo Task [I-2] /$HOST_ARMHF/mpfr/ | tee -a "$BUILDDIR_ARMHF/.stage"
+    rm -rf $BUILDDIR_ARMHF/mpfr && mkdir -p $BUILDDIR_ARMHF/mpfr
+    pushd $BUILDDIR_ARMHF/mpfr
+
+    $SRCDIR/$MPFR/configure --build=$BUILD \
+        --host=$HOST_ARMHF \
+        --target=$TARGET \
+        --prefix=$BUILDDIR_ARMHF/host-libs/usr \
+        --disable-shared \
+        --with-gmp=$BUILDDIR_ARMHF/host-libs/usr
+
+    make -j$JOBS
+    make install
+    #make check
+    popd
+
+    echo Task [I-3] /$HOST_ARMHF/mpc/ | tee -a "$BUILDDIR_ARMHF/.stage"
+    rm -rf $BUILDDIR_ARMHF/mpc && mkdir -p $BUILDDIR_ARMHF/mpc
+    pushd $BUILDDIR_ARMHF/mpc
+
+    $SRCDIR/$MPC/configure --build=$BUILD \
+        --host=$HOST_ARMHF \
+        --target=$TARGET \
+        --prefix=$BUILDDIR_ARMHF/host-libs/usr \
+        --disable-shared \
+        --with-gmp=$BUILDDIR_ARMHF/host-libs/usr \
+        --with-mpfr=$BUILDDIR_ARMHF/host-libs/usr
+
+    make -j$JOBS
+    make install
+    #make check
+    popd
+
+    echo Task [I-4] /$HOST_ARMHF/isl/ | tee -a "$BUILDDIR_ARMHF/.stage"
+    rm -rf $BUILDDIR_ARMHF/isl && mkdir -p $BUILDDIR_ARMHF/isl
+    pushd $BUILDDIR_ARMHF/isl
+
+    $SRCDIR/$ISL/configure --build=$BUILD \
+        --host=$HOST_ARMHF \
+        --target=$TARGET \
+        --prefix=$BUILDDIR_ARMHF/host-libs/usr \
+        --disable-shared \
+        --with-gmp-prefix=$BUILDDIR_ARMHF/host-libs/usr
+
+    make
+    make install
+    #make check
+    popd
+
+    echo Task [I-5] /$HOST_ARMHF/expat/ | tee -a "$BUILDDIR_ARMHF/.stage"
+    rm -rf $BUILDDIR_ARMHF/expat && mkdir -p $BUILDDIR_ARMHF/expat
+    pushd $BUILDDIR_ARMHF/expat
+
+    rsync -a $SRCDIR/$EXPAT/ ./
+    ./buildconf.sh
+
+    ./configure --build=$BUILD \
+        --host=$HOST_ARMHF \
+        --target=$TARGET \
+        --prefix=$BUILDDIR_ARMHF/host-libs/usr \
+        --without-docbook \
+        --without-xmlwf \
+        --disable-shared
+
+    make -j$JOBS
+    make install
+    popd
+restoreenv
+fi # if [ "x$skip_armhf_build" != "yes"] then
+
+if [ "x$skip_riscv_build" != "xyes" ] ; then
+
+saveenv
+saveenvvar CC_FOR_BUILD gcc
+saveenvvar CC $HOST_RISCV_TOOL-gcc
+saveenvvar CXX $HOST_RISCV_TOOL-g++
+saveenvvar AR $HOST_RISCV_TOOL-ar
+saveenvvar RANLIB $HOST_RISCV_TOOL-ranlib
+saveenvvar STRIP $HOST_RISCV_TOOL-strip
+saveenvvar NM $HOST_RISCV_TOOL-nm
+saveenvvar AS $HOST_RISCV_TOOL-as
+saveenvvar OBJDUMP $HOST_RISCV_TOOL-objdump
+
+    echo Task [I-0] /$HOST_RISCV/zlib/ | tee -a "$BUILDDIR_RISCV/.stage"
+    rm -rf $BUILDDIR_RISCV/zlib
+    copy_dir_clean $SRCDIR/$ZLIB $BUILDDIR_RISCV/zlib
+    pushd $BUILDDIR_RISCV/zlib
+    #install zlib at .../host-libs/zlib, prevent gcc from linking into this external zlib
+    ./configure --static --prefix=$BUILDDIR_RISCV/host-libs/zlib
+    make
+    make install
+    popd
+
+    echo Task [I-1] /$HOST_RISCV/gmp/ | tee -a "$BUILDDIR_RISCV/.stage"
+    rm -rf $BUILDDIR_RISCV/gmp && mkdir -p $BUILDDIR_RISCV/gmp
+    pushd $BUILDDIR_RISCV/gmp
+
+    CPPFLAGS="-fexceptions" $SRCDIR/$GMP/configure --build=$BUILD \
+        --host=$HOST_RISCV \
+        --prefix=$BUILDDIR_RISCV/host-libs/usr \
+        --enable-cxx \
+        --enable-fft \
+        --disable-shared
+
+    make -j$JOBS
+    make install
+    #make check
+    popd
+
+    echo Task [I-2] /$HOST_RISCV/mpfr/ | tee -a "$BUILDDIR_RISCV/.stage"
+    rm -rf $BUILDDIR_RISCV/mpfr && mkdir -p $BUILDDIR_RISCV/mpfr
+    pushd $BUILDDIR_RISCV/mpfr
+
+    $SRCDIR/$MPFR/configure --build=$BUILD \
+        --host=$HOST_RISCV \
+        --target=$TARGET \
+        --prefix=$BUILDDIR_RISCV/host-libs/usr \
+        --disable-shared \
+        --with-gmp=$BUILDDIR_RISCV/host-libs/usr
+
+    make -j$JOBS
+    make install
+    #make check
+    popd
+
+    echo Task [I-3] /$HOST_RISCV/mpc/ | tee -a "$BUILDDIR_RISCV/.stage"
+    rm -rf $BUILDDIR_RISCV/mpc && mkdir -p $BUILDDIR_RISCV/mpc
+    pushd $BUILDDIR_RISCV/mpc
+
+    $SRCDIR/$MPC/configure --build=$BUILD \
+        --host=$HOST_RISCV \
+        --target=$TARGET \
+        --prefix=$BUILDDIR_RISCV/host-libs/usr \
+        --disable-shared \
+        --with-gmp=$BUILDDIR_RISCV/host-libs/usr \
+        --with-mpfr=$BUILDDIR_RISCV/host-libs/usr
+
+    make -j$JOBS
+    make install
+    #make check
+    popd
+
+    echo Task [I-4] /$HOST_RISCV/isl/ | tee -a "$BUILDDIR_RISCV/.stage"
+    rm -rf $BUILDDIR_RISCV/isl && mkdir -p $BUILDDIR_RISCV/isl
+    pushd $BUILDDIR_RISCV/isl
+
+    $SRCDIR/$ISL/configure --build=$BUILD \
+        --host=$HOST_RISCV \
+        --target=$TARGET \
+        --prefix=$BUILDDIR_RISCV/host-libs/usr \
+        --disable-shared \
+        --with-gmp-prefix=$BUILDDIR_RISCV/host-libs/usr
+
+    make
+    make install
+    #make check
+    popd
+
+    echo Task [I-5] /$HOST_RISCV/expat/ | tee -a "$BUILDDIR_RISCV/.stage"
+    rm -rf $BUILDDIR_RISCV/expat && mkdir -p $BUILDDIR_RISCV/expat
+    pushd $BUILDDIR_RISCV/expat
+
+    rsync -a $SRCDIR/$EXPAT/ ./
+    ./buildconf.sh
+
+    ./configure --build=$BUILD \
+        --host=$HOST_RISCV \
+        --target=$TARGET \
+        --prefix=$BUILDDIR_RISCV/host-libs/usr \
+        --without-docbook \
+        --without-xmlwf \
+        --disable-shared
+
+    make -j$JOBS
+    make install
+    popd
+
+restoreenv
+fi # if [ "x$skip_riscv_build" != "yes"] then
 
 # skip building mingw32 toolchain if "--skip_mingw32" specified
 if [ "x$skip_mingw32" == "xyes" ] ; then

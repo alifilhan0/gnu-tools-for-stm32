@@ -73,6 +73,8 @@ OPTIONS:
                             manual
                             md5_checksum
                             mingw[32]
+                            armhf
+                            riscv
                             mingw[32]-gdb-with-python
                             native
                             package_bins
@@ -98,6 +100,8 @@ skip_steps=
 skip_gdb_with_python=yes
 skip_mingw32_gdb_with_python=yes
 skip_native_build=no
+skip_armhf_build=no
+skip_riscv_build=no
 skip_strip_target_libraries=no
 build_type=
 
@@ -177,6 +181,12 @@ if [ "x$skip_steps" != "x" ]; then
             native)
                 skip_native_build=yes
                 ;;
+            armhf)
+                skip_armhf_build=yes
+                ;;
+            riscv)
+                skip_riscv_build=yes
+                ;;
             strip)
                 skip_strip_target_libraries=yes
                 ;;
@@ -197,6 +207,8 @@ fi
 if [[ "x$BUILD" == x*-apple-darwin* ]] || [ "x$is_ppa_release" == "xyes" ]; then
     skip_mingw32=yes
     skip_mingw32_gdb_with_python=yes
+    skip_armhf_build=yes
+    skip_riscv_build=yes
     BUILD_OPTIONS="$BUILD_OPTIONS -fbracket-depth=512"
 fi
 
@@ -234,6 +246,16 @@ if [ "x$skip_native_build" != "xyes" ] ; then
     mkdir -p $BUILDDIR_NATIVE
     rm -rf $INSTALLDIR_NATIVE && mkdir -p $INSTALLDIR_NATIVE
     rm -rf $PACKAGEDIR && mkdir -p $PACKAGEDIR
+fi
+
+if [ "x$skip_armhf_build" != "xyes" ] ; then
+    mkdir -p $BUILDDIR_ARMHF
+    rm -rf $INSTALLDIR_ARMHF && mkdir -p $INSTALLDIR_ARMHF
+fi
+
+if [ "x$skip_riscv_build" != "xyes" ] ; then
+    mkdir -p $BUILDDIR_RISCV
+    rm -rf $INSTALLDIR_RISCV && mkdir -p $INSTALLDIR_RISCV
 fi
 
 if [ "x$skip_mingw32" != "xyes" ] ; then
@@ -706,6 +728,620 @@ if [ "x$skip_native_build" != "xyes" ] ; then
     fi
 fi  #if [ "x$skip_native_build" != "xyes" ] ; then
 
+# skip building armhf toolchain if "--skip_armhf_build" specified
+# this huge if statement controls all $BUILDDIR_ARMHF tasks till "task [IV-8]"
+if [ "x$skip_armhf_build" != "xyes" ] ; then
+    saveenv
+    saveenvvar CC_FOR_BUILD gcc
+    saveenvvar CC $HOST_ARMHF_TOOL-gcc
+    saveenvvar CXX $HOST_ARMHF_TOOL-g++
+    saveenvvar AR $HOST_ARMHF_TOOL-ar
+    saveenvvar RANLIB $HOST_ARMHF_TOOL-ranlib
+    saveenvvar STRIP $HOST_ARMHF_TOOL-strip
+    saveenvvar NM $HOST_ARMHF_TOOL-nm
+
+    echo Task [IV-0] /$HOST_ARMHF/host_unpack/ | tee -a "$BUILDDIR_ARMHF/.stage"
+    rm -rf $BUILDDIR_ARMHF/tools-$OBJ_SUFFIX_NATIVE && mkdir $BUILDDIR_ARMHF/tools-$OBJ_SUFFIX_NATIVE
+    pushd $BUILDDIR_ARMHF/tools-$OBJ_SUFFIX_NATIVE
+    ln -s . $INSTALL_PACKAGE_NAME
+    tar xf $PACKAGEDIR/$PACKAGE_NAME_NATIVE.tar.bz2 ${TAR_FLAGS:-}
+    rm $INSTALL_PACKAGE_NAME
+    popd
+
+    echo Task [IV-1] /$HOST_ARMHF/binutils/ | tee -a "$BUILDDIR_ARMHF/.stage"
+    prepend_path PATH $BUILDDIR_ARMHF/tools-$OBJ_SUFFIX_NATIVE/bin
+    rm -rf $BUILDDIR_ARMHF/binutils && mkdir -p $BUILDDIR_ARMHF/binutils
+    pushd $BUILDDIR_ARMHF/binutils
+    saveenv
+    saveenvvar CFLAGS "-I$BUILDDIR_ARMHF/host-libs/zlib/include -I$BUILDDIR_ARMHF/host-libs/usr/include $BUILD_OPTIONS"
+    saveenvvar CPPFLAGS "-I$BUILDDIR_ARMHF/host-libs/zlib/include -I$BUILDDIR_ARMHF/host-libs/usr/include"
+    saveenvvar LDFLAGS "-L$BUILDDIR_ARMHF/host-libs/zlib/lib -L$BUILDDIR_ARMHF/host-libs/usr/lib"
+    $SRCDIR/$BINUTILS/configure --build=$BUILD \
+        --host=$HOST_ARMHF \
+        --target=$TARGET \
+        --prefix=$INSTALLDIR_ARMHF \
+        --infodir=$INSTALLDIR_ARMHF_DOC/info \
+        --mandir=$INSTALLDIR_ARMHF_DOC/man \
+        --htmldir=$INSTALLDIR_ARMHF_DOC/html \
+        --pdfdir=$INSTALLDIR_ARMHF_DOC/pdf \
+        --disable-nls \
+        --disable-sim \
+        --disable-gdb \
+        --enable-plugins \
+        --with-sysroot=$INSTALLDIR_ARMHF/arm-none-eabi \
+        "--with-pkgversion=$PKGVERSION"
+
+    make -j$JOBS
+
+    make install
+
+    if [ "x$skip_manual" != "xyes" ]; then
+        make install-html install-pdf
+    fi
+
+    restoreenv
+    popd
+
+    pushd $INSTALLDIR_ARMHF
+    rm -rf ./lib
+    popd
+
+    echo Task [IV-2] /$HOST_ARMHF/copy_libs/ | tee -a "$BUILDDIR_ARMHF/.stage"
+    if [ "x$skip_manual" != "xyes" ]; then
+        copy_dir $BUILDDIR_ARMHF/tools-$OBJ_SUFFIX_NATIVE/share/doc/gcc-arm-none-eabi/html $INSTALLDIR_ARMHF_DOC/html
+        copy_dir $BUILDDIR_ARMHF/tools-$OBJ_SUFFIX_NATIVE/share/doc/gcc-arm-none-eabi/pdf $INSTALLDIR_ARMHF_DOC/pdf
+    fi
+    copy_dir $BUILDDIR_ARMHF/tools-$OBJ_SUFFIX_NATIVE/arm-none-eabi/lib $INSTALLDIR_ARMHF/arm-none-eabi/lib
+    copy_dir $BUILDDIR_ARMHF/tools-$OBJ_SUFFIX_NATIVE/arm-none-eabi/include $INSTALLDIR_ARMHF/arm-none-eabi/include
+    copy_dir $BUILDDIR_ARMHF/tools-$OBJ_SUFFIX_NATIVE/arm-none-eabi/include/c++ $INSTALLDIR_ARMHF/arm-none-eabi/include/c++
+    copy_dir $BUILDDIR_ARMHF/tools-$OBJ_SUFFIX_NATIVE/lib/gcc/arm-none-eabi $INSTALLDIR_ARMHF/lib/gcc/arm-none-eabi
+
+    echo Task [IV-3] /$HOST_ARMHF/gcc-final/ | tee -a "$BUILDDIR_ARMHF/.stage"
+    saveenv
+    saveenvvar AR_FOR_TARGET $TARGET-ar
+    saveenvvar NM_FOR_TARGET $TARGET-nm
+    saveenvvar OBJDUMP_FOR_TARGET $TARGET-objdump
+    saveenvvar STRIP_FOR_TARGET $TARGET-strip
+    saveenvvar CC_FOR_TARGET $TARGET-gcc
+    saveenvvar GCC_FOR_TARGET $TARGET-gcc
+    saveenvvar CXX_FOR_TARGET $TARGET-g++
+
+    pushd $INSTALLDIR_ARMHF/arm-none-eabi/
+    rm -f usr
+    ln -s . usr
+    popd
+    rm -rf $BUILDDIR_ARMHF/gcc && mkdir -p $BUILDDIR_ARMHF/gcc
+    pushd $BUILDDIR_ARMHF/gcc
+    saveenvvar CFLAGS "$BUILD_OPTIONS"
+    $SRCDIR/$GCC/configure --build=$BUILD --host=$HOST_ARMHF --target=$TARGET \
+        --prefix=$INSTALLDIR_ARMHF \
+        --libexecdir=$INSTALLDIR_ARMHF/lib \
+        --infodir=$INSTALLDIR_ARMHF_DOC/info \
+        --mandir=$INSTALLDIR_ARMHF_DOC/man \
+        --htmldir=$INSTALLDIR_ARMHF_DOC/html \
+        --pdfdir=$INSTALLDIR_ARMHF_DOC/pdf \
+        --enable-languages=c,c++ \
+        --enable-plugins \
+        --disable-decimal-float \
+        --disable-libffi \
+        --disable-libgomp \
+        --disable-libmudflap \
+        --disable-libquadmath \
+        --disable-libssp \
+        --disable-libstdcxx-pch \
+        --disable-nls \
+        --disable-shared \
+        --disable-threads \
+        --disable-tls \
+        --with-gnu-as \
+        --with-gnu-ld \
+        --with-headers=yes \
+        --with-newlib \
+        --with-python-dir=share/gcc-arm-none-eabi \
+        --with-sysroot=$INSTALLDIR_ARMHF/arm-none-eabi \
+        --with-libiconv-prefix=$BUILDDIR_ARMHF/host-libs/usr \
+        --with-gmp=$BUILDDIR_ARMHF/host-libs/usr \
+        --with-mpfr=$BUILDDIR_ARMHF/host-libs/usr \
+        --with-mpc=$BUILDDIR_ARMHF/host-libs/usr \
+        --with-isl=$BUILDDIR_ARMHF/host-libs/usr \
+        "--with-host-libstdcxx=-static-libgcc -Wl,-Bstatic,-lstdc++,-Bdynamic -lm" \
+        "--with-pkgversion=$PKGVERSION" \
+        ${MULTILIB_LIST}
+
+    make -j$JOBS all-gcc
+
+    make install-gcc
+
+    if [ "x$skip_manual" != "xyes" ]; then
+        make install-html-gcc install-pdf-gcc
+    fi
+    popd
+
+    pushd $INSTALLDIR_ARMHF
+    rm -rf bin/arm-none-eabi-gccbug
+    rm -rf  include
+    popd
+
+    copy_dir $BUILDDIR_ARMHF/tools-$OBJ_SUFFIX_NATIVE/lib/gcc/arm-none-eabi $INSTALLDIR_ARMHF/lib/gcc/arm-none-eabi
+    rm $INSTALLDIR_ARMHF/lib/gcc/arm-none-eabi/14.3.1/cc1
+    rm $INSTALLDIR_ARMHF/lib/gcc/arm-none-eabi/14.3.1/cc1plus
+    rm $INSTALLDIR_ARMHF/lib/gcc/arm-none-eabi/14.3.1/collect2
+    rm $INSTALLDIR_ARMHF/lib/gcc/arm-none-eabi/14.3.1/liblto_plugin.so
+    rm $INSTALLDIR_ARMHF/lib/gcc/arm-none-eabi/14.3.1/lto-wrapper
+    rm $INSTALLDIR_ARMHF/lib/gcc/arm-none-eabi/14.3.1/lto1
+    rm $INSTALLDIR_ARMHF/lib/gcc/arm-none-eabi/14.3.1/g++-mapper-server
+    rm $INSTALLDIR_ARMHF/lib/gcc/arm-none-eabi/14.3.1/install-tools/fixincl
+    cp $BUILDDIR_ARMHF/gcc/gcc/cc1 $INSTALLDIR_ARMHF/lib/gcc/arm-none-eabi/14.3.1/cc1
+    cp $BUILDDIR_ARMHF/gcc/gcc/cc1plus $INSTALLDIR_ARMHF/lib/gcc/arm-none-eabi/14.3.1/cc1plus
+    cp $BUILDDIR_ARMHF/gcc/gcc/collect2 $INSTALLDIR_ARMHF/lib/gcc/arm-none-eabi/14.3.1/collect2
+    cp $BUILDDIR_ARMHF/gcc/gcc/liblto_plugin.so $INSTALLDIR_ARMHF/lib/gcc/arm-none-eabi/14.3.1/liblto_plugin.so
+    cp $BUILDDIR_ARMHF/gcc/gcc/lto-wrapper $INSTALLDIR_ARMHF/lib/gcc/arm-none-eabi/14.3.1/lto-wrapper
+    cp $BUILDDIR_ARMHF/gcc/gcc/lto1 $INSTALLDIR_ARMHF/lib/gcc/arm-none-eabi/14.3.1/lto1
+    cp $BUILDDIR_ARMHF/gcc/fixincludes/fixincl $INSTALLDIR_ARMHF/lib/gcc/arm-none-eabi/14.3.1/install-tools/fixincl
+    rm -rf $INSTALLDIR_ARMHF/arm-none-eabi/usr
+    rm -rf $INSTALLDIR_ARMHF/lib/gcc/arm-none-eabi/*/plugin
+    restoreenv
+
+    echo Task [IV-4] /$HOST_ARMHF/gdb/ | tee -a "$BUILDDIR_ARMHF/.stage"
+    build_armhf_gdb()
+    {
+        ARMHF_GDB_CONF_OPTS=$1
+        rm -rf $BUILDDIR_ARMHF/gdb && mkdir -p $BUILDDIR_ARMHF/gdb
+        pushd $BUILDDIR_ARMHF/gdb
+        saveenv
+        saveenvvar CFLAGS "-I$BUILDDIR_ARMHF/host-libs/zlib/include $BUILD_OPTIONS"
+        saveenvvar CPPFLAGS "-I$BUILDDIR_ARMHF/host-libs/zlib/include"
+        saveenvvar LDFLAGS "-L$BUILDDIR_ARMHF/host-libs/zlib/lib"
+        $SRCDIR/$GDB/configure --build=$BUILD \
+            --host=$HOST_ARMHF \
+            --target=$TARGET \
+            --prefix=$INSTALLDIR_ARMHF \
+            --infodir=$INSTALLDIR_ARMHF_DOC/info \
+            --mandir=$INSTALLDIR_ARMHF_DOC/man \
+            --htmldir=$INSTALLDIR_ARMHF_DOC/html \
+            --pdfdir=$INSTALLDIR_ARMHF_DOC/pdf \
+            --disable-nls \
+            --disable-sim \
+            --disable-gas \
+            --disable-binutils \
+            --disable-ld \
+            --disable-gprof \
+            --with-lzma=no \
+            $ARMHF_GDB_CONF_OPTS \
+            --with-libexpat \
+            --with-libexpat-prefix=$BUILDDIR_ARMHF/host-libs/usr \
+            --with-libiconv-prefix=$BUILDDIR_ARMHF/host-libs/usr \
+            --with-gmp=$BUILDDIR_ARMHF/host-libs/usr \
+            --with-mpfr=$BUILDDIR_ARMHF/host-libs/usr \
+            --with-system-gdbinit=$INSTALLDIR_ARMHF/$HOST_ARMHF/arm-none-eabi/lib/gdbinit \
+            '--with-gdb-datadir='\''${prefix}'\''/arm-none-eabi/share/gdb' \
+            "--with-pkgversion=$PKGVERSION"
+
+        make -j$JOBS
+
+        make install
+        if [ "x$skip_manual" != "xyes" ]; then
+            make install-html install-pdf
+            rm -v $INSTALLDIR_ARMHF_DOC/html/gdb/qMemTags.html
+        fi
+
+        restoreenv
+        popd
+    }
+
+    build_armhf_gdb "--with-python=no"
+
+    echo Task [IV-5] /$HOST_ARMHF/pretidy/ | tee -a "$BUILDDIR_ARMHF/.stage"
+    pushd $INSTALLDIR_ARMHF
+    rm -rf ./lib/libiberty.a
+    rm -rf $INSTALLDIR_ARMHF_DOC/info
+    rm -rf $INSTALLDIR_ARMHF_DOC/man
+
+    find $INSTALLDIR_ARMHF -name '*.la' -exec rm '{}' ';'
+
+    echo Task [IV-6] /$HOST_ARMHF/strip_host_objects/ | tee -a "$BUILDDIR_ARMHF/.stage"
+    STRIP_BINARIES=$(find $INSTALLDIR_ARMHF/bin/ -name "arm-none-eabi-*")
+    if [ "x$is_debug_build" == "xno" ] ; then
+        for bin in $STRIP_BINARIES ; do
+            strip_binary $HOST_ARMHF_TOOL-strip $bin
+        done
+
+        STRIP_BINARIES=$(find $INSTALLDIR_ARMHF/arm-none-eabi/bin/ -maxdepth 1 -mindepth 1 -type f)
+        for bin in $STRIP_BINARIES ; do
+            strip_binary $HOST_ARMHF_TOOL-strip $bin
+        done
+
+        STRIP_BINARIES=$(find $INSTALLDIR_ARMHF/lib/gcc/arm-none-eabi/$GCC_VER/ -maxdepth 1 -type f -perm /111)
+        for bin in $STRIP_BINARIES ; do
+            strip_binary $HOST_ARMHF_TOOL-strip $bin
+        done
+    fi
+
+    echo Task [III-10] /$HOST_ARMHF/strip_target_objects/ | tee -a "$BUILDDIR_ARMHF/.stage"
+    saveenv
+    prepend_path PATH $INSTALLDIR_ARMHF/bin
+
+    if [ "x$skip_strip_target_libraries" == "xno" ] ; then
+        TARGET_LIBRARIES=$(find $INSTALLDIR_ARMHF/arm-none-eabi/lib -name libg.a -or -name libg_nano.a)
+        for target_lib in $TARGET_LIBRARIES ; do
+            break_hardlink "$target_lib"
+        done
+        TARGET_LIBRARIES=$(find $INSTALLDIR_ARMHF/arm-none-eabi/lib -name \*.a ! -name libg.a ! -name libg_nano.a)
+        for target_lib in $TARGET_LIBRARIES ; do
+            $INSTALLDIR_NATIVE/bin/arm-none-eabi-strip --remove-section=.comment --remove-section=.note --strip-debug --enable-deterministic-archives --keep-section=.debug_frame $target_lib || true
+        done
+
+        TARGET_OBJECTS=$(find $INSTALLDIR_ARMHF/arm-none-eabi/lib -name \*.o)
+        for target_obj in $TARGET_OBJECTS ; do
+            $INSTALLDIR_NATIVE/bin/arm-none-eabi-strip --remove-section=.comment --remove-section=.note --strip-debug --enable-deterministic-archives --keep-section=.debug_frame $target_obj || true
+        done
+
+        TARGET_LIBRARIES=$(find $INSTALLDIR_ARMHF/lib/gcc/arm-none-eabi/$GCC_VER -name \*.a)
+        for target_lib in $TARGET_LIBRARIES ; do
+            $INSTALLDIR_NATIVE/bin/arm-none-eabi-strip --remove-section=.comment --remove-section=.note --strip-debug --enable-deterministic-archives --keep-section=.debug_frame $target_lib || true
+        done
+
+        TARGET_OBJECTS=$(find $INSTALLDIR_ARMHF/lib/gcc/arm-none-eabi/$GCC_VER -name \*.o)
+        for target_obj in $TARGET_OBJECTS ; do
+            $INSTALLDIR_NATIVE/bin/arm-none-eabi-strip --remove-section=.comment --remove-section=.note --strip-debug --enable-deterministic-archives --keep-section=.debug_frame $target_obj || true
+        done
+    fi
+    restoreenv
+
+    echo Task [III-11] /$HOST_ARMHF/specs/ | tee -a "$BUILDDIR_ARMHF/.stage"
+    pushd $BUILDDIR_ARMHF
+    $INSTALLDIR_NATIVE/bin/arm-none-eabi-gcc -print-multi-lib | cut -d';' -f 1 | while read dir; do # using the native stmicro's toolchain compiled for native build for spec generation.
+      cp -v $SRCDIR/specs/{nano_c_standard_cpp,standard_c_nano_cpp}.specs $INSTALLDIR_ARMHF/arm-none-eabi/lib/$dir/
+    done
+    popd
+
+    # PPA release needn't following steps, so we exit here.
+    if [ "x$is_ppa_release" == "xyes" ] ; then
+      exit 0
+    fi
+
+    echo Task [III-12] /$HOST_ARMHF/package_tbz2/ | tee -a "$BUILDDIR_ARMHF/.stage"
+
+    # Copy release.txt into share.
+    cp $ROOT/$LICENSE_FILE $INSTALLDIR_ARMHF_DOC/
+
+    # Cleanup any pre-existing state.
+    rm -f $PACKAGEDIR/$PACKAGE_NAME_ARMHF.tar.bz2
+    rm -f $BUILDDIR_ARMHF/$INSTALL_PACKAGE_NAME
+
+    # Start making the package.
+    pushd $BUILDDIR_ARMHF
+    ln -s $INSTALLDIR_ARMHF $INSTALL_PACKAGE_NAME
+
+    # Make the package tarball.
+    ${TAR} cjf $PACKAGEDIR/$PACKAGE_NAME_ARMHF.tar.bz2   \
+        --exclude=host-$HOST_NATIVE             \
+        --exclude=host-$HOST_MINGW              \
+        $INSTALL_PACKAGE_NAME/arm-none-eabi     \
+        $INSTALL_PACKAGE_NAME/bin               \
+        $INSTALL_PACKAGE_NAME/lib               \
+        $INSTALL_PACKAGE_NAME/share
+
+    # Remove stale links.
+    rm -f $INSTALL_PACKAGE_NAME
+    popd
+
+    if [ "x$skip_package_bins" != "xyes" ]; then
+        echo Task [III-13] /Package toolchain in ST version/
+        pushd $ROOT
+        #time ${TAR} czf $PACKAGEDIR/${PACKAGE_NAME_ARMHF}-build.tar.gz --owner=0 --group=0 build-native/
+        time ${TAR} czf $PACKAGEDIR/${PACKAGE_NAME_ARMHF}-install.tar.gz --owner=0 --group=0 install-native/
+        popd
+    fi
+fi #end of if [ "x$skip_armhf_build" != "xyes" ] ;
+
+# skip building riscv toolchain if "--skip_riscv_build" specified
+# this huge if statement controls all $BUILDDIR_RISCV tasks till "task [IV-8]"
+if [ "x$skip_riscv_build" != "xyes" ] ; then
+    saveenv
+    saveenvvar CC_FOR_BUILD gcc
+    saveenvvar CC $HOST_RISCV_TOOL-gcc
+    saveenvvar CXX $HOST_RISCV_TOOL-g++
+    saveenvvar AR $HOST_RISCV_TOOL-ar
+    saveenvvar RANLIB $HOST_RISCV_TOOL-ranlib
+    saveenvvar STRIP $HOST_RISCV_TOOL-strip
+    saveenvvar NM $HOST_RISCV_TOOL-nm
+
+    echo Task [IV-0] /$HOST_RISCV/host_unpack/ | tee -a "$BUILDDIR_RISCV/.stage"
+    rm -rf $BUILDDIR_RISCV/tools-$OBJ_SUFFIX_NATIVE && mkdir $BUILDDIR_RISCV/tools-$OBJ_SUFFIX_NATIVE
+    pushd $BUILDDIR_RISCV/tools-$OBJ_SUFFIX_NATIVE
+    ln -s . $INSTALL_PACKAGE_NAME
+    tar xf $PACKAGEDIR/$PACKAGE_NAME_NATIVE.tar.bz2 ${TAR_FLAGS:-}
+    rm $INSTALL_PACKAGE_NAME
+    popd
+
+    echo Task [IV-1] /$HOST_RISCV/binutils/ | tee -a "$BUILDDIR_RISCV/.stage"
+    prepend_path PATH $BUILDDIR_RISCV/tools-$OBJ_SUFFIX_NATIVE/bin
+    rm -rf $BUILDDIR_RISCV/binutils && mkdir -p $BUILDDIR_RISCV/binutils
+    pushd $BUILDDIR_RISCV/binutils
+    saveenv
+    saveenvvar CFLAGS "-I$BUILDDIR_RISCV/host-libs/zlib/include -I$BUILDDIR_RISCV/host-libs/usr/include $BUILD_OPTIONS"
+    saveenvvar CPPFLAGS "-I$BUILDDIR_RISCV/host-libs/zlib/include -I$BUILDDIR_RISCV/host-libs/usr/include"
+    saveenvvar LDFLAGS "-L$BUILDDIR_RISCV/host-libs/zlib/lib -L$BUILDDIR_RISCV/host-libs/usr/lib"
+    $SRCDIR/$BINUTILS/configure --build=$BUILD \
+        --host=$HOST_RISCV \
+        --target=$TARGET \
+        --prefix=$INSTALLDIR_RISCV \
+        --infodir=$INSTALLDIR_RISCV_DOC/info \
+        --mandir=$INSTALLDIR_RISCV_DOC/man \
+        --htmldir=$INSTALLDIR_RISCV_DOC/html \
+        --pdfdir=$INSTALLDIR_RISCV_DOC/pdf \
+        --disable-nls \
+        --disable-sim \
+        --disable-gdb \
+        --enable-plugins \
+        --with-sysroot=$INSTALLDIR_RISCV/arm-none-eabi \
+        "--with-pkgversion=$PKGVERSION"
+
+    make -j$JOBS
+
+    make install
+
+    if [ "x$skip_manual" != "xyes" ]; then
+        make install-html install-pdf
+    fi
+
+    restoreenv
+    popd
+
+    pushd $INSTALLDIR_RISCV
+    rm -rf ./lib
+    popd
+
+    echo Task [IV-2] /$HOST_RISCV/copy_libs/ | tee -a "$BUILDDIR_RISCV/.stage"
+    if [ "x$skip_manual" != "xyes" ]; then
+        copy_dir $BUILDDIR_RISCV/tools-$OBJ_SUFFIX_NATIVE/share/doc/gcc-arm-none-eabi/html $INSTALLDIR_RISCV_DOC/html
+        copy_dir $BUILDDIR_RISCV/tools-$OBJ_SUFFIX_NATIVE/share/doc/gcc-arm-none-eabi/pdf $INSTALLDIR_RISCV_DOC/pdf
+    fi
+    copy_dir $BUILDDIR_RISCV/tools-$OBJ_SUFFIX_NATIVE/arm-none-eabi/lib $INSTALLDIR_RISCV/arm-none-eabi/lib
+    copy_dir $BUILDDIR_RISCV/tools-$OBJ_SUFFIX_NATIVE/arm-none-eabi/include $INSTALLDIR_RISCV/arm-none-eabi/include
+    copy_dir $BUILDDIR_RISCV/tools-$OBJ_SUFFIX_NATIVE/arm-none-eabi/include/c++ $INSTALLDIR_RISCV/arm-none-eabi/include/c++
+    copy_dir $BUILDDIR_RISCV/tools-$OBJ_SUFFIX_NATIVE/lib/gcc/arm-none-eabi $INSTALLDIR_RISCV/lib/gcc/arm-none-eabi
+
+    echo Task [IV-3] /$HOST_RISCV/gcc-final/ | tee -a "$BUILDDIR_RISCV/.stage"
+    saveenv
+    saveenvvar AR_FOR_TARGET $TARGET-ar
+    saveenvvar NM_FOR_TARGET $TARGET-nm
+    saveenvvar OBJDUMP_FOR_TARGET $TARGET-objdump
+    saveenvvar STRIP_FOR_TARGET $TARGET-strip
+    saveenvvar CC_FOR_TARGET $TARGET-gcc
+    saveenvvar GCC_FOR_TARGET $TARGET-gcc
+    saveenvvar CXX_FOR_TARGET $TARGET-g++
+
+    pushd $INSTALLDIR_RISCV/arm-none-eabi/
+    rm -f usr
+    ln -s . usr
+    popd
+    rm -rf $BUILDDIR_RISCV/gcc && mkdir -p $BUILDDIR_RISCV/gcc
+    pushd $BUILDDIR_RISCV/gcc
+    saveenvvar CFLAGS "$BUILD_OPTIONS"
+    $SRCDIR/$GCC/configure --build=$BUILD --host=$HOST_RISCV --target=$TARGET \
+        --prefix=$INSTALLDIR_RISCV \
+        --libexecdir=$INSTALLDIR_RISCV/lib \
+        --infodir=$INSTALLDIR_RISCV_DOC/info \
+        --mandir=$INSTALLDIR_RISCV_DOC/man \
+        --htmldir=$INSTALLDIR_RISCV_DOC/html \
+        --pdfdir=$INSTALLDIR_RISCV_DOC/pdf \
+        --enable-languages=c,c++ \
+        --enable-mingw-wildcard \
+        --disable-decimal-float \
+        --disable-libffi \
+        --disable-libgomp \
+        --disable-libmudflap \
+        --disable-libquadmath \
+        --disable-libssp \
+        --disable-libstdcxx-pch \
+        --disable-nls \
+        --disable-shared \
+        --disable-threads \
+        --disable-tls \
+        --with-gnu-as \
+        --with-gnu-ld \
+        --with-headers=yes \
+        --with-newlib \
+        --with-python-dir=share/gcc-arm-none-eabi \
+        --with-sysroot=$INSTALLDIR_RISCV/arm-none-eabi \
+        --with-libiconv-prefix=$BUILDDIR_RISCV/host-libs/usr \
+        --with-gmp=$BUILDDIR_RISCV/host-libs/usr \
+        --with-mpfr=$BUILDDIR_RISCV/host-libs/usr \
+        --with-mpc=$BUILDDIR_RISCV/host-libs/usr \
+        --with-isl=$BUILDDIR_RISCV/host-libs/usr \
+        "--with-host-libstdcxx=-static-libgcc -Wl,-Bstatic,-lstdc++,-Bdynamic -lm" \
+        "--with-pkgversion=$PKGVERSION" \
+        ${MULTILIB_LIST}
+
+    make -j$JOBS all-gcc
+
+    make install-gcc
+
+    if [ "x$skip_manual" != "xyes" ]; then
+        make install-html-gcc install-pdf-gcc
+    fi
+    popd
+
+    pushd $INSTALLDIR_RISCV
+    rm -rf bin/arm-none-eabi-gccbug
+    rm -rf  include
+    popd
+
+    copy_dir $BUILDDIR_RISCV/tools-$OBJ_SUFFIX_NATIVE/lib/gcc/arm-none-eabi $INSTALLDIR_RISCV/lib/gcc/arm-none-eabi
+    rm $INSTALLDIR_RISCV/lib/gcc/arm-none-eabi/14.3.1/cc1
+    rm $INSTALLDIR_RISCV/lib/gcc/arm-none-eabi/14.3.1/cc1plus
+    rm $INSTALLDIR_RISCV/lib/gcc/arm-none-eabi/14.3.1/collect2
+    rm $INSTALLDIR_RISCV/lib/gcc/arm-none-eabi/14.3.1/liblto_plugin.so
+    rm $INSTALLDIR_RISCV/lib/gcc/arm-none-eabi/14.3.1/lto-wrapper
+    rm $INSTALLDIR_RISCV/lib/gcc/arm-none-eabi/14.3.1/lto1
+    rm $INSTALLDIR_RISCV/lib/gcc/arm-none-eabi/14.3.1/g++-mapper-server
+    rm $INSTALLDIR_RISCV/lib/gcc/arm-none-eabi/14.3.1/install-tools/fixincl
+    cp $BUILDDIR_RISCV/gcc/gcc/cc1 $INSTALLDIR_RISCV/lib/gcc/arm-none-eabi/14.3.1/cc1
+    cp $BUILDDIR_RISCV/gcc/gcc/cc1plus $INSTALLDIR_RISCV/lib/gcc/arm-none-eabi/14.3.1/cc1plus
+    cp $BUILDDIR_RISCV/gcc/gcc/collect2 $INSTALLDIR_RISCV/lib/gcc/arm-none-eabi/14.3.1/collect2
+    cp $BUILDDIR_RISCV/gcc/gcc/liblto_plugin.so $INSTALLDIR_RISCV/lib/gcc/arm-none-eabi/14.3.1/liblto_plugin.so
+    cp $BUILDDIR_RISCV/gcc/gcc/lto-wrapper $INSTALLDIR_RISCV/lib/gcc/arm-none-eabi/14.3.1/lto-wrapper
+    cp $BUILDDIR_RISCV/gcc/gcc/lto1 $INSTALLDIR_RISCV/lib/gcc/arm-none-eabi/14.3.1/lto1
+    cp $BUILDDIR_RISCV/gcc/fixincludes/fixincl $INSTALLDIR_RISCV/lib/gcc/arm-none-eabi/14.3.1/install-tools/fixincl
+    rm -rf $INSTALLDIR_RISCV/arm-none-eabi/usr
+    rm -rf $INSTALLDIR_RISCV/lib/gcc/arm-none-eabi/*/plugin
+    restoreenv
+
+    echo Task [IV-4] /$HOST_RISCV/gdb/ | tee -a "$BUILDDIR_RISCV/.stage"
+    build_riscv_gdb()
+    {
+        RISCV_GDB_CONF_OPTS=$1
+        rm -rf $BUILDDIR_RISCV/gdb && mkdir -p $BUILDDIR_RISCV/gdb
+        pushd $BUILDDIR_RISCV/gdb
+        saveenv
+        saveenvvar CFLAGS "-I$BUILDDIR_RISCV/host-libs/zlib/include $BUILD_OPTIONS"
+        saveenvvar CPPFLAGS "-I$BUILDDIR_RISCV/host-libs/zlib/include"
+        saveenvvar LDFLAGS "-L$BUILDDIR_RISCV/host-libs/zlib/lib"
+        $SRCDIR/$GDB/configure --build=$BUILD \
+            --host=$HOST_RISCV \
+            --target=$TARGET \
+            --prefix=$INSTALLDIR_RISCV \
+            --infodir=$INSTALLDIR_RISCV_DOC/info \
+            --mandir=$INSTALLDIR_RISCV_DOC/man \
+            --htmldir=$INSTALLDIR_RISCV_DOC/html \
+            --pdfdir=$INSTALLDIR_RISCV_DOC/pdf \
+            --disable-nls \
+            --disable-sim \
+            --disable-gas \
+            --disable-binutils \
+            --disable-ld \
+            --disable-gprof \
+            --with-lzma=no \
+            $RISCV_GDB_CONF_OPTS \
+            --with-libexpat \
+            --with-libexpat-prefix=$BUILDDIR_RISCV/host-libs/usr \
+            --with-libiconv-prefix=$BUILDDIR_RISCV/host-libs/usr \
+            --with-gmp=$BUILDDIR_RISCV/host-libs/usr \
+            --with-mpfr=$BUILDDIR_RISCV/host-libs/usr \
+            --with-system-gdbinit=$INSTALLDIR_RISCV/$HOST_RISCV/arm-none-eabi/lib/gdbinit \
+            '--with-gdb-datadir='\''${prefix}'\''/arm-none-eabi/share/gdb' \
+            "--with-pkgversion=$PKGVERSION"
+
+        make -j$JOBS
+
+        make install
+        if [ "x$skip_manual" != "xyes" ]; then
+            make install-html install-pdf
+            rm -v $INSTALLDIR_RISCV_DOC/html/gdb/qMemTags.html
+        fi
+
+        restoreenv
+        popd
+    }
+
+    build_riscv_gdb "--with-python=no"
+
+    echo Task [IV-5] /$HOST_RISCV/pretidy/ | tee -a "$BUILDDIR_RISCV/.stage"
+    pushd $INSTALLDIR_RISCV
+    rm -rf ./lib/libiberty.a
+    rm -rf $INSTALLDIR_RISCV_DOC/info
+    rm -rf $INSTALLDIR_RISCV_DOC/man
+
+    find $INSTALLDIR_RISCV -name '*.la' -exec rm '{}' ';'
+
+    echo Task [IV-6] /$HOST_RISCV/strip_host_objects/ | tee -a "$BUILDDIR_RISCV/.stage"
+    STRIP_BINARIES=$(find $INSTALLDIR_RISCV/bin/ -name "arm-none-eabi-*")
+    if [ "x$is_debug_build" == "xno" ] ; then
+        for bin in $STRIP_BINARIES ; do
+            strip_binary $HOST_RISCV_TOOL-strip $bin
+        done
+
+        STRIP_BINARIES=$(find $INSTALLDIR_RISCV/arm-none-eabi/bin/ -maxdepth 1 -mindepth 1 -type f)
+        for bin in $STRIP_BINARIES ; do
+            strip_binary $HOST_RISCV_TOOL-strip $bin
+        done
+
+        STRIP_BINARIES=$(find $INSTALLDIR_RISCV/lib/gcc/arm-none-eabi/$GCC_VER/ -maxdepth 1 -type f -perm /111)
+        for bin in $STRIP_BINARIES ; do
+            strip_binary $HOST_RISCV_TOOL-strip $bin
+        done
+    fi
+
+    echo Task [III-10] /$HOST_RISCV/strip_target_objects/ | tee -a "$BUILDDIR_RISCV/.stage"
+    saveenv
+    prepend_path PATH $INSTALLDIR_RISCV/bin
+
+    if [ "x$skip_strip_target_libraries" == "xno" ] ; then
+        TARGET_LIBRARIES=$(find $INSTALLDIR_RISCV/arm-none-eabi/lib -name libg.a -or -name libg_nano.a)
+        for target_lib in $TARGET_LIBRARIES ; do
+            break_hardlink "$target_lib"
+        done
+        TARGET_LIBRARIES=$(find $INSTALLDIR_RISCV/arm-none-eabi/lib -name \*.a ! -name libg.a ! -name libg_nano.a)
+        for target_lib in $TARGET_LIBRARIES ; do
+            $INSTALLDIR_NATIVE/bin/arm-none-eabi-strip --remove-section=.comment --remove-section=.note --strip-debug --enable-deterministic-archives --keep-section=.debug_frame $target_lib || true
+        done
+
+        TARGET_OBJECTS=$(find $INSTALLDIR_RISCV/arm-none-eabi/lib -name \*.o)
+        for target_obj in $TARGET_OBJECTS ; do
+            $INSTALLDIR_NATIVE/bin/arm-none-eabi-strip --remove-section=.comment --remove-section=.note --strip-debug --enable-deterministic-archives --keep-section=.debug_frame $target_obj || true
+        done
+
+        TARGET_LIBRARIES=$(find $INSTALLDIR_RISCV/lib/gcc/arm-none-eabi/$GCC_VER -name \*.a)
+        for target_lib in $TARGET_LIBRARIES ; do
+            $INSTALLDIR_NATIVE/bin/arm-none-eabi-strip --remove-section=.comment --remove-section=.note --strip-debug --enable-deterministic-archives --keep-section=.debug_frame $target_lib || true
+        done
+
+        TARGET_OBJECTS=$(find $INSTALLDIR_RISCV/lib/gcc/arm-none-eabi/$GCC_VER -name \*.o)
+        for target_obj in $TARGET_OBJECTS ; do
+            $INSTALLDIR_NATIVE/bin/arm-none-eabi-strip --remove-section=.comment --remove-section=.note --strip-debug --enable-deterministic-archives --keep-section=.debug_frame $target_obj || true
+        done
+    fi
+    restoreenv
+
+    echo Task [III-11] /$HOST_RISCV/specs/ | tee -a "$BUILDDIR_RISCV/.stage"
+    pushd $BUILDDIR_RISCV
+    $INSTALLDIR_NATIVE/bin/arm-none-eabi-gcc -print-multi-lib | cut -d';' -f 1 | while read dir; do # using the native stmicro's toolchain compiled for native build for spec generation.
+      cp -v $SRCDIR/specs/{nano_c_standard_cpp,standard_c_nano_cpp}.specs $INSTALLDIR_RISCV/arm-none-eabi/lib/$dir/
+    done
+    popd
+
+    # PPA release needn't following steps, so we exit here.
+    if [ "x$is_ppa_release" == "xyes" ] ; then
+      exit 0
+    fi
+
+    echo Task [III-12] /$HOST_RISCV/package_tbz2/ | tee -a "$BUILDDIR_RISCV/.stage"
+
+    # Copy release.txt into share.
+    cp $ROOT/$LICENSE_FILE $INSTALLDIR_RISCV_DOC/
+
+    # Cleanup any pre-existing state.
+    rm -f $PACKAGEDIR/$PACKAGE_NAME_RISCV.tar.bz2
+    rm -f $BUILDDIR_RISCV/$INSTALL_PACKAGE_NAME
+
+    # Start making the package.
+    pushd $BUILDDIR_RISCV
+    ln -s $INSTALLDIR_RISCV $INSTALL_PACKAGE_NAME
+
+    # Make the package tarball.
+    ${TAR} cjf $PACKAGEDIR/$PACKAGE_NAME_RISCV.tar.bz2   \
+        --exclude=host-$HOST_NATIVE             \
+        --exclude=host-$HOST_MINGW              \
+        $INSTALL_PACKAGE_NAME/arm-none-eabi     \
+        $INSTALL_PACKAGE_NAME/bin               \
+        $INSTALL_PACKAGE_NAME/lib               \
+        $INSTALL_PACKAGE_NAME/share
+
+    # Remove stale links.
+    rm -f $INSTALL_PACKAGE_NAME
+    popd
+
+    if [ "x$skip_package_bins" != "xyes" ]; then
+        echo Task [III-13] /Package toolchain in ST version/
+        pushd $ROOT
+        #time ${TAR} czf $PACKAGEDIR/${PACKAGE_NAME_RISCV}-build.tar.gz --owner=0 --group=0 build-native/
+        time ${TAR} czf $PACKAGEDIR/${PACKAGE_NAME_RISCV}-install.tar.gz --owner=0 --group=0 install-native/
+        popd
+    fi
+fi #end of if [ "x$skip_riscv_build" != "xyes" ] ;
+
 # skip building mingw32 toolchain if "--skip_mingw32" specified
 # this huge if statement controls all $BUILDDIR_MINGW tasks till "task [IV-8]"
 if [ "x$skip_mingw32" != "xyes" ] ; then
@@ -780,7 +1416,7 @@ if [ "x$skip_mingw32" != "xyes" ] ; then
     saveenv
     saveenvvar AR_FOR_TARGET $TARGET-ar
     saveenvvar NM_FOR_TARGET $TARGET-nm
-    saveenvvar OBJDUMP_FOR_TARET $TARGET-objdump
+    saveenvvar OBJDUMP_FOR_TARGET $TARGET-objdump
     saveenvvar STRIP_FOR_TARGET $TARGET-strip
     saveenvvar CC_FOR_TARGET $TARGET-gcc
     saveenvvar GCC_FOR_TARGET $TARGET-gcc
